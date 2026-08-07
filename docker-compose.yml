@@ -1,0 +1,80 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: digitalleads-postgres
+    environment:
+      POSTGRES_USER: digitalleads
+      POSTGRES_PASSWORD: digitalleads123
+      POSTGRES_DB: digitalleads
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - digitalleads-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U digitalleads"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: digitalleads-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - digitalleads-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: digitalleads-redis-commander
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    ports:
+      - "8081:8081"
+    networks:
+      - digitalleads-network
+    depends_on:
+      - redis
+
+  app:
+    build: .
+    container_name: digitalleads-api
+    ports:
+      - "5000:5000"
+    environment:
+      DATABASE_URL: postgresql://digitalleads:digitalleads123@postgres:5432/digitalleads?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: your-secret-key-change-this-in-production
+      NODE_ENV: development
+      CORS_ORIGIN: http://localhost:5173
+    volumes:
+      - ./src:/app/src
+      - ./prisma:/app/prisma
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - digitalleads-network
+    command: npm run dev
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  digitalleads-network:
+    driver: bridge
