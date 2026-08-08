@@ -1,3 +1,4 @@
+// routes/routing.ts
 import { Router } from 'express';
 import { RoutingController } from '../controllers/routingController';
 import { authenticate, authorize } from '../middleware/auth';
@@ -21,8 +22,15 @@ const routingRuleSchema = z.object({
 
 router.use(authenticate);
 
+// Keep the root route for listing all rules
 router.get('/', RoutingController.list);
 router.post('/', authorize('ADMIN', 'MANAGER'), validate(routingRuleSchema), RoutingController.create);
+
+// Also handle /rules as an alias
+router.get('/rules', RoutingController.list);
+router.post('/rules', authorize('ADMIN', 'MANAGER'), validate(routingRuleSchema), RoutingController.create);
+
+// Individual rule endpoints
 router.patch('/:id', authorize('ADMIN', 'MANAGER'), validate(routingRuleSchema.partial()), RoutingController.update);
 router.delete('/:id', authorize('ADMIN'), RoutingController.delete);
 router.post('/reorder', authorize('ADMIN', 'MANAGER'), RoutingController.reorder);

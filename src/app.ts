@@ -69,17 +69,21 @@ app.use(session({
   name: 'digitalleads.sid',
 }));
 
-// Rate limiting
+// ============================================
+// RATE LIMITING - FIXED: Less strict for development
+// ============================================
 const limiter = rateLimit({
-  windowMs: (Number(process.env.RATE_LIMIT_WINDOW) || 15) * 60 * 1000,
-  max: Number(process.env.RATE_LIMIT_MAX) || 100,
+  windowMs: (Number(process.env.RATE_LIMIT_WINDOW) || 1) * 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_MAX) || 1000,
   message: {
     error: 'Too many requests',
     message: 'Please try again later.',
-    retryAfter: Math.ceil((Number(process.env.RATE_LIMIT_WINDOW) || 15) * 60),
+    retryAfter: Math.ceil((Number(process.env.RATE_LIMIT_WINDOW) || 1) * 60),
   },
   standardHeaders: true,
   legacyHeaders: false,
+  // ✅ Fix: Use underscore to indicate unused parameter
+  skip: (_req) => process.env.NODE_ENV === 'development',
 });
 
 app.use('/api', limiter);
@@ -111,7 +115,6 @@ const apiPrefix = '/api';
 app.use(`${apiPrefix}/auth`, authRoutes);
 
 // ✅ Click tracking is PUBLIC - NO AUTH needed
-// The POST /api/clicks route is public, but GET routes are protected inside the router
 app.use(`${apiPrefix}/clicks`, clickRoutes);
 
 // ============================================
@@ -126,6 +129,7 @@ app.use(`${apiPrefix}/fraud`, authenticate, fraudRoutes);
 app.use(`${apiPrefix}/devices`, authenticate, deviceRoutes);
 app.use(`${apiPrefix}/geo`, authenticate, geoRoutes);
 app.use(`${apiPrefix}/routing`, authenticate, routingRoutes);
+app.use(`${apiPrefix}/postbacks`, authenticate, postbackRoutes);
 app.use(`${apiPrefix}/postback`, authenticate, postbackRoutes);
 app.use(`${apiPrefix}/domains`, authenticate, domainRoutes);
 app.use(`${apiPrefix}/notifications`, authenticate, notificationRoutes);
