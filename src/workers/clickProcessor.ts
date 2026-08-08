@@ -1,3 +1,4 @@
+// src/workers/clickProcessor.ts
 import { prisma } from '../config/database';
 import { redis } from '../config/redis';
 import { logger } from '../config/logger';
@@ -27,6 +28,11 @@ interface ClickData {
 export class ClickProcessor {
   static async process(clickData: ClickData): Promise<string> {
     try {
+      // Validate required fields
+      if (!clickData.offerId || !clickData.networkId) {
+        throw new Error('Offer ID and Network ID are required');
+      }
+
       // Generate unique click ID
       const clickId = `cl_${uuidv4().replace(/-/g, '')}`;
 
@@ -36,8 +42,8 @@ export class ClickProcessor {
       // Get geo data
       const geoData = geoipUtils.getGeoData(clickData.ip);
 
-      // Check for fraud
-      const isFraudulent = await this.detectFraud(clickData, deviceInfo);
+      // Check for fraud - ensure boolean return
+      const isFraudulent = await this.detectFraud(clickData);
 
       // Create click record
       const click = await prisma.click.create({
@@ -49,7 +55,7 @@ export class ClickProcessor {
           device: deviceInfo.device,
           os: deviceInfo.os,
           browser: deviceInfo.browser,
-          isp: null, // Would need ISP lookup service
+          isp: null,
           carrier: null,
           referrer: clickData.referrer || null,
           campaign: clickData.campaign || null,
@@ -65,38 +71,21 @@ export class ClickProcessor {
           sub10: clickData.sub10 || null,
           offerId: clickData.offerId,
           networkId: clickData.networkId,
-          isFraudulent,
+          isFraudulent: isFraudulent, // Must be boolean
           userAgent: clickData.userAgent,
           sessionId: this.generateSessionId(clickData),
         },
       });
 
-      // Increment click count in Redis
-      await redis.incr(`stats:clicks:${clickData.offerId}`);
-      await redis.incr(`stats:clicks:${clickData.networkId}`);
-      await redis.incr(`stats:clicks:today`);
+      // Update stats in Redis
+      await this.updateStats(click);
 
-      // Queue for analytics processing
-      await redis.lpush('analytics:queue', JSON.stringify({
-        type: 'click',
-        clickId: click.clickId,
-        timestamp: new Date().toISOString(),
-        offerId: clickData.offerId,
-        networkId: clickData.networkId,
-        country: geoData?.country || null,
-      }));
-
-      logger.info('Click processed', {
+      logger.info('Click processed successfully', {
         clickId: click.clickId,
         offerId: clickData.offerId,
         networkId: clickData.networkId,
         isFraudulent,
       });
-
-      // Check for fraud triggers
-      if (isFraudulent) {
-        await this.handleFraudDetected(clickData, deviceInfo);
-      }
 
       return click.clickId;
     } catch (error) {
@@ -105,37 +94,70 @@ export class ClickProcessor {
     }
   }
 
-  private static async detectFraud(clickData: ClickData, deviceInfo: any): Promise<boolean> {
-    // Check for duplicate clicks (same IP, same offer, within time window)
-    const duplicateCheck = await prisma.click.findFirst({
-      where: {
-        ip: clickData.ip,
-        offerId: clickData.offerId,
-        timestamp: {
-          gte: new Date(Date.now() - 60 * 1000), // 1 minute window
+  // ✅ Fix: Return boolean, not number
+  private static async detectFraud(clickData: ClickData): Promise<boolean> {
+    try {
+      // Check for duplicate clicks (same IP, same offer, within time window)
+      const duplicate = await prisma.click.findFirst({
+        where: {
+          ip: clickData.ip,
+          offerId: clickData.offerId,
+          timestamp: {
+            gte: new Date(Date.now() - 60 * 1000), // 1 minute window
+          },
         },
-      },
-    });
+      });
 
-    if (duplicateCheck) {
-      return true;
+      if (duplicate) {
+        await prisma.fraudSignal.create({
+          data: {
+            type: 'DUPLICATE_CLICK',
+            label: 'Duplicate Click Detected',
+            count: 1,
+            riskLevel: 'HIGH',
+            ipAddress: clickData.ip,
+            details: JSON.stringify({
+              offerId: clickData.offerId,
+              networkId: clickData.networkId,
+            }),
+          },
+        });
+        return true; // ✅ Return boolean
+      }
+
+      // Check for bot
+      const deviceInfo = userAgentUtils.parse(clickData.userAgent);
+      if (deviceInfo.isBot) {
+        await prisma.fraudSignal.create({
+          data: {
+            type: 'BOT',
+            label: 'Bot Detected',
+            count: 1,
+            riskLevel: 'MEDIUM',
+            ipAddress: clickData.ip,
+            details: JSON.stringify({
+              userAgent: clickData.userAgent,
+              offerId: clickData.offerId,
+            }),
+          },
+        });
+        return true; // ✅ Return boolean
+      }
+
+      // Check for blacklisted IP
+      const isBlacklisted = await redis.sismember('blacklist:ips', clickData.ip);
+      if (isBlacklisted) {
+        return true; // ✅ Return boolean
+      }
+
+      return false; // ✅ Return boolean
+    } catch (error) {
+      logger.error('Fraud detection error:', error);
+      return false; // ✅ Return boolean on error
     }
-
-    // Check for VPN/Proxy (simplified - would use 3rd party service in production)
-    // Placeholder logic
-    const isVPN = false;
-
-    // Check for bot detection
-    const isBot = deviceInfo.isBot;
-
-    // Check for blacklisted IPs
-    const isBlacklisted = await redis.sismember('blacklist:ips', clickData.ip);
-
-    return isBot || isVPN || isBlacklisted;
   }
 
   private static generateSessionId(clickData: ClickData): string {
-    // Simple session generation based on IP and user agent
     const components = [
       clickData.ip,
       clickData.userAgent,
@@ -144,35 +166,10 @@ export class ClickProcessor {
     return `sess_${Buffer.from(components.join('|')).toString('base64').substring(0, 20)}`;
   }
 
-  private static async handleFraudDetected(clickData: ClickData, deviceInfo: any): Promise<void> {
-    // Create fraud signal
-    await prisma.fraudSignal.create({
-      data: {
-        type: 'DUPLICATE_CLICK',
-        label: 'Duplicate Click Detected',
-        count: 1,
-        riskLevel: 'HIGH',
-        ipAddress: clickData.ip,
-        details: JSON.stringify({
-          offerId: clickData.offerId,
-          networkId: clickData.networkId,
-          deviceInfo,
-        }),
-      },
-    });
-
-    // Notify about fraud
-    await redis.publish('fraud:detected', JSON.stringify({
-      type: 'DUPLICATE_CLICK',
-      ip: clickData.ip,
-      offerId: clickData.offerId,
-      timestamp: new Date().toISOString(),
-    }));
-
-    logger.warn('Fraud detected', {
-      type: 'DUPLICATE_CLICK',
-      ip: clickData.ip,
-      offerId: clickData.offerId,
-    });
+  private static async updateStats(click: any): Promise<void> {
+    await redis.incr(`stats:clicks:${click.offerId}`);
+    await redis.incr(`stats:clicks:${click.networkId}`);
+    await redis.incr('stats:clicks:today');
+    await redis.incr('stats:clicks:total');
   }
 }

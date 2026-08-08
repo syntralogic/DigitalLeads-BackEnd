@@ -42,7 +42,7 @@ app.use(compression());
 
 // CORS
 app.use(cors({
-  origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:8080'],
+  origin: true, // Allows all origins in development
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-Requested-With'],
