@@ -1,8 +1,8 @@
+// src/middleware/auth.ts
 import { Request, Response, NextFunction } from 'express';
-import { jwtUtils, JwtPayload } from '../config/jwt';
+import jwt from 'jsonwebtoken';
 import { prisma } from '../config/database';
 import { logger } from '../config/logger';
-import { cache } from '../config/redis';
 
 declare global {
   namespace Express {
@@ -11,122 +11,133 @@ declare global {
         id: string;
         email: string;
         role: string;
+        name?: string;
       };
-      apiKey?: string;
+      userId?: string;
     }
   }
 }
+
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-me-in-production';
 
 export const authenticate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    // Check for API key first
-    const apiKey = req.headers['x-api-key'] as string;
-    if (apiKey) {
-      const user = await validateApiKey(apiKey);
-      if (user) {
-        req.user = user;
-        next();
+    // Skip authentication for health check
+    if (req.path === '/health') {
+      next();
+      return;
+    }
+
+    // Get token from Authorization header
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader) {
+      logger.warn(`No authorization header for ${req.method} ${req.path}`);
+      res.status(401).json({
+        success: false,
+        message: 'No token provided',
+      });
+      return;
+    }
+
+    if (!authHeader.startsWith('Bearer ')) {
+      res.status(401).json({
+        success: false,
+        message: 'Invalid token format. Use Bearer token.',
+      });
+      return;
+    }
+
+    const token = authHeader.substring(7); // Remove 'Bearer '
+
+    try {
+      // Verify JWT token
+      const decoded = jwt.verify(token, JWT_SECRET) as { 
+        id: string; 
+        email: string; 
+        role: string;
+        userId?: string;
+      };
+
+      // Get user ID from token (handle both 'id' and 'userId' fields)
+      const userId = decoded.id || decoded.userId;
+      
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Invalid token: user ID not found',
+        });
         return;
       }
-    }
 
-    // Then check for JWT token
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      // Check if user exists
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          name: true,
+        },
+      });
+
+      if (!user) {
+        res.status(401).json({
+          success: false,
+          message: 'User not found',
+        });
+        return;
+      }
+
+      // ✅ Fix: Handle null name properly
+      const userData = {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        name: user.name || undefined,
+      };
+
+      // Attach user to request
+      req.user = userData;
+      req.userId = user.id;
+      
+      next();
+    } catch (jwtError) {
+      logger.error('JWT verification failed:', jwtError);
+      
+      if (jwtError instanceof jwt.TokenExpiredError) {
+        res.status(401).json({
+          success: false,
+          message: 'Token expired',
+        });
+        return;
+      }
+      
+      if (jwtError instanceof jwt.JsonWebTokenError) {
+        res.status(401).json({
+          success: false,
+          message: 'Invalid token',
+        });
+        return;
+      }
+      
       res.status(401).json({
         success: false,
-        message: 'Authentication required. Please provide a valid token or API key.',
+        message: 'Authentication failed',
       });
       return;
     }
-
-    const token = authHeader.substring(7);
-    const decoded = await validateToken(token);
-
-    // Check if user exists and is active
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-      select: { id: true, email: true, role: true, lastLogin: true },
-    });
-
-    if (!user) {
-      res.status(401).json({
-        success: false,
-        message: 'User not found or inactive.',
-      });
-      return;
-    }
-
-    req.user = user;
-    next();
   } catch (error) {
-    if (error instanceof Error) {
-      logger.error('Authentication error:', { error: error.message, path: req.path });
-      res.status(401).json({
-        success: false,
-        message: error.message || 'Authentication failed.',
-      });
-      return;
-    }
-    next(error);
+    logger.error('Authentication error:', error);
+    res.status(401).json({
+      success: false,
+      message: 'Authentication failed',
+    });
+    return;
   }
 };
 
-async function validateToken(token: string): Promise<JwtPayload> {
-  try {
-    const decoded = jwtUtils.verify(token);
-
-    // Check if token is blacklisted
-    const isBlacklisted = await cache.get(`blacklist:${token}`);
-    if (isBlacklisted) {
-      throw new Error('Token has been revoked');
-    }
-
-    return decoded;
-  } catch (error) {
-    if (error instanceof Error) {
-      throw new Error(error.message);
-    }
-    throw new Error('Invalid token');
-  }
-}
-
-async function validateApiKey(apiKey: string) {
-  try {
-    // In production, this should compare hashed keys
-    const keyRecord = await prisma.apiKey.findFirst({
-      where: {
-        keyHash: apiKey, // Should be hashed in production
-        revoked: false,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            role: true,
-          },
-        },
-      },
-    });
-
-    if (!keyRecord) {
-      return null;
-    }
-
-    // Update last used timestamp
-    await prisma.apiKey.update({
-      where: { id: keyRecord.id },
-      data: { lastUsed: new Date() },
-    });
-
-    return keyRecord.user;
-  } catch (error) {
-    logger.error('API key validation error:', error);
-    return null;
-  }
-}
-
+// Optional: Role-based authorization
 export const authorize = (...roles: string[]) => {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
@@ -147,47 +158,4 @@ export const authorize = (...roles: string[]) => {
 
     next();
   };
-};
-
-export const requireApiKey = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-  const apiKey = req.headers['x-api-key'] as string;
-  if (!apiKey) {
-    res.status(401).json({
-      success: false,
-      message: 'API key required.',
-    });
-    return;
-  }
-
-  const user = await validateApiKey(apiKey);
-  if (!user) {
-    res.status(401).json({
-      success: false,
-      message: 'Invalid API key.',
-    });
-    return;
-  }
-
-  req.user = user;
-  next();
-};
-
-export const optionalAuth = async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.substring(7);
-      const decoded = await validateToken(token);
-      const user = await prisma.user.findUnique({
-        where: { id: decoded.userId },
-        select: { id: true, email: true, role: true },
-      });
-      if (user) {
-        req.user = user;
-      }
-    }
-    next();
-  } catch {
-    next();
-  }
 };
