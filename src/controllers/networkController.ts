@@ -63,14 +63,50 @@ export class NetworkController {
         prisma.network.count({ where }),
       ]);
 
+      // Get revenue data for each network
+      const networkIds = networks.map(n => n.id);
+      let revenueMap = new Map();
+      
+      if (networkIds.length > 0) {
+        const revenueData = await prisma.conversion.groupBy({
+          by: ['networkId'],
+          where: {
+            networkId: { in: networkIds },
+            status: 'APPROVED',
+          },
+          _sum: {
+            revenue: true,
+          },
+        });
+        
+        revenueData.forEach(item => {
+          revenueMap.set(item.networkId, item._sum.revenue || 0);
+        });
+      }
+
       const result = {
-        data: networks,
-        pagination: {
-          page: Number(page),
-          pageSize: Number(pageSize),
-          total,
-          totalPages: Math.ceil(total / Number(pageSize)),
-        },
+        items: networks.map(network => ({
+          id: network.id,
+          name: network.name,
+          apiUrl: network.apiUrl || null,
+          apiKey: network.apiKey || null,
+          postbackUrl: network.postbackUrl || null,
+          clickIdMapping: network.clickIdMapping || null,
+          payoutMapping: network.payoutMapping || null,
+          statusMapping: network.statusMapping || null,
+          status: network.status,
+          apiHealthy: network.apiHealthy,
+          postbackHealthy: network.postbackHealthy,
+          lastApiCheck: network.lastApiCheck,
+          lastPostbackCheck: network.lastPostbackCheck,
+          offersCount: network._count?.offers || 0,
+          revenue: revenueMap.get(network.id) || 0,
+          createdAt: network.createdAt,
+          updatedAt: network.updatedAt,
+        })),
+        total,
+        page: Number(page),
+        pageSize: Number(pageSize),
       };
 
       // Cache for 1 minute
@@ -119,10 +155,27 @@ export class NetworkController {
         throw new AppError('Network not found', 404);
       }
 
-      // Cache for 5 minutes
-      await cache.set(cacheKey, network, 300);
+      // Get revenue
+      const revenueData = await prisma.conversion.aggregate({
+        where: {
+          networkId: id,
+          status: 'APPROVED',
+        },
+        _sum: {
+          revenue: true,
+        },
+      });
 
-      res.json(network);
+      const result = {
+        ...network,
+        offersCount: network._count?.clicks || 0,
+        revenue: revenueData._sum.revenue || 0,
+      };
+
+      // Cache for 5 minutes
+      await cache.set(cacheKey, result, 300);
+
+      res.json(result);
       return;
     } catch (error) {
       next(error);
@@ -372,12 +425,13 @@ export class NetworkController {
       // Simulate network latency
       await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 400));
       const latencyMs = Date.now() - startTime;
+      const isHealthy = latencyMs < 1000;
 
       // Update network status
       await prisma.network.update({
         where: { id },
         data: {
-          apiHealthy: latencyMs < 1000,
+          apiHealthy: isHealthy,
           lastApiCheck: new Date(),
         },
       });
@@ -389,14 +443,14 @@ export class NetworkController {
           action: 'TEST_CONNECTION',
           resource: 'Network',
           resourceId: id,
-          changes: { latencyMs, healthy: latencyMs < 1000 },
+          changes: { latencyMs, healthy: isHealthy },
           ip: req.ip,
           userAgent: req.headers['user-agent'],
         },
       });
 
       res.json({
-        ok: latencyMs < 1000,
+        ok: isHealthy,
         latencyMs,
       });
       return;
