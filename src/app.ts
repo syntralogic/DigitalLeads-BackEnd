@@ -69,9 +69,7 @@ app.use(session({
   name: 'digitalleads.sid',
 }));
 
-// ============================================
-// RATE LIMITING - FIXED: Less strict for development
-// ============================================
+// Rate Limiting
 const limiter = rateLimit({
   windowMs: (Number(process.env.RATE_LIMIT_WINDOW) || 1) * 60 * 1000,
   max: Number(process.env.RATE_LIMIT_MAX) || 1000,
@@ -82,7 +80,6 @@ const limiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // ✅ Fix: Use underscore to indicate unused parameter
   skip: (_req) => process.env.NODE_ENV === 'development',
 });
 
@@ -117,12 +114,15 @@ app.use(`${apiPrefix}/auth`, authRoutes);
 // ✅ Click tracking is PUBLIC - NO AUTH needed
 app.use(`${apiPrefix}/clicks`, clickRoutes);
 
+// ✅ REMOVED: Offer preview is now handled in frontend
+// The preview route is now at /offers/preview/:id in the frontend
+
 // ============================================
 // PROTECTED ROUTES - Require authentication
 // ============================================
+app.use(`${apiPrefix}/offers`, authenticate, offerRoutes);
 app.use(`${apiPrefix}/dashboard`, authenticate, dashboardRoutes);
 app.use(`${apiPrefix}/networks`, authenticate, networkRoutes);
-app.use(`${apiPrefix}/offers`, authenticate, offerRoutes);
 app.use(`${apiPrefix}/conversions`, authenticate, conversionRoutes);
 app.use(`${apiPrefix}/analytics`, authenticate, analyticsRoutes);
 app.use(`${apiPrefix}/fraud`, authenticate, fraudRoutes);

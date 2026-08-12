@@ -89,7 +89,7 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
         return;
       }
 
-      // ✅ Fix: Handle null name properly
+      // Handle null name properly
       const userData = {
         id: user.id,
         email: user.email,
@@ -137,7 +137,70 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
   }
 };
 
-// Optional: Role-based authorization
+// ✅ Optional authentication - tries to authenticate but continues even if no token
+// ✅ Fixed: Added underscore to unused 'res' parameter
+export const optionalAuth = async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
+  try {
+    // Get token from multiple sources
+    let token: string | undefined;
+
+    // 1. Check Authorization header
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    }
+
+    // 2. Check query parameter (for preview links)
+    if (!token && req.query.token) {
+      token = req.query.token as string;
+    }
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET) as { 
+          id: string; 
+          email: string; 
+          role: string;
+          userId?: string;
+        };
+        
+        const userId = decoded.id || decoded.userId;
+        if (userId) {
+          const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+              id: true,
+              email: true,
+              role: true,
+              name: true,
+            },
+          });
+          
+          if (user) {
+            req.user = {
+              id: user.id,
+              email: user.email,
+              role: user.role,
+              name: user.name || undefined,
+            };
+            req.userId = user.id;
+            logger.info(`Optional auth successful for user ${user.email} on ${req.path}`);
+          }
+        }
+      } catch (e) {
+        // Invalid token, but we don't care for optional auth
+        logger.debug('Optional auth token invalid, continuing without user');
+      }
+    }
+    
+    next();
+  } catch (error) {
+    // Even if optional auth fails, continue
+    next();
+  }
+};
+
+// Role-based authorization
 export const authorize = (...roles: string[]) => {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {

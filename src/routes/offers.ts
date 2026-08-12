@@ -45,6 +45,7 @@ const bulkImportSchema = z.object({
   }),
 });
 
+// ✅ All routes require authentication
 router.use(authenticate);
 
 router.get('/', OfferController.list);
@@ -55,6 +56,5 @@ router.delete('/:id', authorize('ADMIN'), OfferController.delete);
 router.post('/:id/clone', authorize('ADMIN', 'MANAGER'), OfferController.clone);
 router.patch('/:id/status', authorize('ADMIN', 'MANAGER'), OfferController.setStatus);
 router.post('/bulk', authorize('ADMIN'), validate(bulkImportSchema), OfferController.bulkImport);
-router.get('/:id/preview', OfferController.getPreview);
 
 export default router;
