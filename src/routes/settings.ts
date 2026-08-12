@@ -26,6 +26,12 @@ const smtpSchema = z.object({
   }),
 });
 
+const smtpTestSchema = z.object({
+  body: z.object({
+    email: z.string().email('Invalid email address').optional(),
+  }),
+});
+
 const securitySchema = z.object({
   body: z.object({
     twoFactorRequired: z.boolean().default(false),
@@ -41,7 +47,7 @@ router.get('/branding', SettingsController.getBranding);
 router.put('/branding', validate(brandingSchema), SettingsController.saveBranding);
 router.get('/smtp', SettingsController.getSmtp);
 router.put('/smtp', validate(smtpSchema), SettingsController.saveSmtp);
-router.post('/smtp/test', SettingsController.testSmtp);
+router.post('/smtp/test', validate(smtpTestSchema), SettingsController.testSmtp);
 router.get('/security', SettingsController.getSecurity);
 router.put('/security', validate(securitySchema), SettingsController.saveSecurity);
 router.get('/users', SettingsController.getUsers);
