@@ -4,10 +4,11 @@ import { cache } from '../config/redis';
 import { AppError } from '../middleware/errorHandler';
 
 export class AnalyticsController {
+  // Make this a static method so it can be accessed without instance
   private static getDimensionField(dimension: string): string | null {
     const mapping: Record<string, string> = {
-      offer: 'offer_id',
-      network: 'network_id',
+      offer: 'offerId',
+      network: 'networkId',
       country: 'country',
       device: 'device',
       browser: 'browser',
@@ -44,17 +45,18 @@ export class AnalyticsController {
         return;
       }
 
-      const dimensionField = this.getDimensionField(dimension as string);
+      // Use static method properly
+      const dimensionField = AnalyticsController.getDimensionField(dimension as string);
 
       if (!dimensionField) {
         throw new AppError('Invalid dimension', 400);
       }
 
-      // Build SQL query - Fixed column names
+      // Build SQL query with proper column names using template literals
       let sql = `
         SELECT 
-          ${dimensionField} as id,
-          ${dimensionField} as label,
+          c."${dimensionField}" as id,
+          c."${dimensionField}" as label,
           COUNT(DISTINCT c.id) as clicks,
           COUNT(DISTINCT conv.id) as conversions,
           COALESCE(SUM(conv.revenue), 0) as revenue,
@@ -77,12 +79,12 @@ export class AnalyticsController {
       let paramIndex = 3;
 
       if (search) {
-        sql += ` AND ${dimensionField} ILIKE $${paramIndex}`;
+        sql += ` AND c."${dimensionField}"::text ILIKE $${paramIndex}`;
         params.push(`%${search}%`);
         paramIndex++;
       }
 
-      sql += ` GROUP BY ${dimensionField} ORDER BY clicks DESC LIMIT 50`;
+      sql += ` GROUP BY c."${dimensionField}" ORDER BY clicks DESC LIMIT 50`;
 
       const report = await prisma.$queryRawUnsafe(sql, ...params);
 
@@ -99,8 +101,11 @@ export class AnalyticsController {
 
       const result = {
         dimension,
-        granularity,
-        dateRange,
+        granularity: granularity || 'daily',
+        dateRange: {
+          gte: dateRange.gte.toISOString(),
+          lte: dateRange.lte.toISOString(),
+        },
         data: serializedData || [],
       };
 
@@ -121,10 +126,6 @@ export class AnalyticsController {
         from,
         to,
       } = req.query;
-
-      if (!dimension) {
-        throw new AppError('Dimension is required', 400);
-      }
 
       const dateRange = {
         gte: from ? new Date(from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
@@ -158,18 +159,19 @@ export class AnalyticsController {
           interval = "DATE_TRUNC('day', timestamp)";
       }
 
-      const series = await prisma.$queryRaw`
+      // Use $queryRawUnsafe with string interpolation
+      const series = await prisma.$queryRawUnsafe(`
         SELECT 
           ${interval} as time_bucket,
           COUNT(*) as clicks,
           COUNT(DISTINCT "clickId") as unique_clicks,
           COALESCE(SUM(revenue), 0) as revenue
         FROM "conversions"
-        WHERE timestamp >= ${dateRange.gte} 
-          AND timestamp <= ${dateRange.lte}
+        WHERE timestamp >= $1 
+          AND timestamp <= $2
         GROUP BY time_bucket
         ORDER BY time_bucket ASC
-      `;
+      `, dateRange.gte, dateRange.lte);
 
       const result = (series as any[]).map((item: any) => ({
         timestamp: item.time_bucket instanceof Date ? item.time_bucket.toISOString() : String(item.time_bucket),
@@ -194,27 +196,28 @@ export class AnalyticsController {
         from,
         to,
         format = 'csv',
-      } = req.body;
+      } = req.query;
 
       if (!dimension) {
         throw new AppError('Dimension is required', 400);
       }
 
       const dateRange = {
-        gte: from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-        lte: to ? new Date(to) : new Date(),
+        gte: from ? new Date(from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+        lte: to ? new Date(to as string) : new Date(),
       };
 
-      const dimensionField = this.getDimensionField(dimension);
+      const dimensionField = AnalyticsController.getDimensionField(dimension as string);
 
       if (!dimensionField) {
         throw new AppError('Invalid dimension', 400);
       }
 
-      let sql = `
+      // First, get the data
+      const sql = `
         SELECT 
-          ${dimensionField} as id,
-          ${dimensionField} as label,
+          c."${dimensionField}" as id,
+          c."${dimensionField}" as label,
           COUNT(DISTINCT c.id) as clicks,
           COUNT(DISTINCT conv.id) as conversions,
           COALESCE(SUM(conv.revenue), 0) as revenue,
@@ -223,13 +226,11 @@ export class AnalyticsController {
         LEFT JOIN "conversions" conv ON conv."clickId" = c."clickId"
         WHERE c.timestamp >= $1 
           AND c.timestamp <= $2
-        GROUP BY ${dimensionField}
+        GROUP BY c."${dimensionField}"
         ORDER BY clicks DESC
       `;
 
-      const params = [dateRange.gte, dateRange.lte];
-
-      const data = await prisma.$queryRawUnsafe(sql, ...params);
+      const data = await prisma.$queryRawUnsafe(sql, dateRange.gte, dateRange.lte);
 
       // Convert BigInt values to Number
       const serializedData = (data as any[]).map(item => ({
@@ -263,6 +264,7 @@ export class AnalyticsController {
         return;
       }
 
+      // JSON format
       res.json({
         data: serializedData,
         exportedAt: new Date().toISOString(),
@@ -286,45 +288,30 @@ export class AnalyticsController {
         return;
       }
 
-      let groupBy: string;
-      switch (level) {
-        case 'country':
-          groupBy = 'country';
-          break;
-        case 'state':
-          groupBy = 'region';
-          break;
-        case 'city':
-          groupBy = 'city';
-          break;
-        case 'isp':
-          groupBy = 'isp';
-          break;
-        case 'language':
-          groupBy = 'language';
-          break;
-        case 'timezone':
-          groupBy = 'timezone';
-          break;
-        default:
-          throw new AppError('Invalid geo level', 400);
-      }
+      // Map geo levels to actual column names
+      const geoMapping: Record<string, string> = {
+        country: 'country',
+        city: 'city',
+        isp: 'isp',
+      };
 
-      const geoData = await prisma.$queryRaw`
+      const groupBy = geoMapping[level] || 'country';
+
+      const geoData = await prisma.$queryRawUnsafe(`
         SELECT 
-          ${groupBy} as id,
-          ${groupBy} as label,
+          "${groupBy}" as id,
+          "${groupBy}" as label,
           COUNT(DISTINCT c.id) as clicks,
           COUNT(DISTINCT conv.id) as conversions,
           COALESCE(SUM(conv.revenue), 0) as revenue
         FROM "clicks" c
         LEFT JOIN "conversions" conv ON conv."clickId" = c."clickId"
-        WHERE ${groupBy} IS NOT NULL
+        WHERE "${groupBy}" IS NOT NULL
           AND c.timestamp >= NOW() - INTERVAL '30 days'
-        GROUP BY ${groupBy}
+        GROUP BY "${groupBy}"
         ORDER BY clicks DESC
         LIMIT 100
-      `;
+      `);
 
       // Convert BigInt values to Number for JSON serialization
       const serializedData = (geoData as any[]).map(item => ({
@@ -332,6 +319,10 @@ export class AnalyticsController {
         clicks: Number(item.clicks) || 0,
         conversions: Number(item.conversions) || 0,
         revenue: Number(item.revenue) || 0,
+        conversion_rate: Number(item.conversions) > 0 && Number(item.clicks) > 0 
+          ? (Number(item.conversions) / Number(item.clicks)) * 100 
+          : 0,
+        percentage: 0, // Will be calculated client-side
       }));
 
       await cache.set(cacheKey, serializedData, 300);
@@ -353,7 +344,7 @@ export class AnalyticsController {
         return;
       }
 
-      const devices = await prisma.$queryRaw`
+      const devices = await prisma.$queryRawUnsafe(`
         SELECT 
           c.device as id,
           c.device as label,
@@ -370,7 +361,7 @@ export class AnalyticsController {
           AND c.timestamp >= NOW() - INTERVAL '30 days'
         GROUP BY c.device
         ORDER BY clicks DESC
-      `;
+      `);
 
       // Convert BigInt values to Number for JSON serialization
       const serializedData = (devices as any[]).map(item => ({

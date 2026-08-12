@@ -19,9 +19,14 @@ const reportSchema = z.object({
 
 router.use(authenticate);
 
+// Report routes
 router.get('/report', validate(reportSchema), cacheMiddleware({ ttl: 60 }), AnalyticsController.getReport);
 router.get('/series', validate(reportSchema), cacheMiddleware({ ttl: 60 }), AnalyticsController.getSeries);
-router.post('/export', AnalyticsController.export);
+
+// Export route - ADD THIS
+router.get('/export', AnalyticsController.export);
+
+// Geo and Devices routes
 router.get('/geo/:level', cacheMiddleware({ ttl: 300 }), AnalyticsController.getGeo);
 router.get('/devices', cacheMiddleware({ ttl: 300 }), AnalyticsController.getDevices);
 
