@@ -167,6 +167,7 @@ export class AIController {
 
   private static async calculateTrafficQuality(): Promise<number> {
     try {
+      // Fixed: Use double quotes for column names
       const stats = await prisma.$queryRaw`
         SELECT 
           COUNT(DISTINCT c.id) as total_clicks,
@@ -235,6 +236,7 @@ export class AIController {
 
   private static async getBestOffers(): Promise<any[]> {
     try {
+      // Fixed: Use "offerId" with quotes
       const offers = await prisma.$queryRaw`
         SELECT 
           o.id,
@@ -251,7 +253,7 @@ export class AIController {
             ELSE COALESCE(SUM(conv.revenue), 0) / COUNT(DISTINCT c.id) 
           END as epc
         FROM "offers" o
-        LEFT JOIN "clicks" c ON c.offer_id = o.id
+        LEFT JOIN "clicks" c ON c."offerId" = o.id
         LEFT JOIN "conversions" conv ON conv."clickId" = c."clickId"
         WHERE c.timestamp >= NOW() - INTERVAL '30 days'
         GROUP BY o.id, o.name
@@ -273,6 +275,7 @@ export class AIController {
 
   private static async getWorstOffers(): Promise<any[]> {
     try {
+      // Fixed: Use "offerId" with quotes
       const offers = await prisma.$queryRaw`
         SELECT 
           o.id,
@@ -284,7 +287,7 @@ export class AIController {
             ELSE (COUNT(DISTINCT conv.id)::float / COUNT(DISTINCT c.id)) * 100 
           END as conversion_rate
         FROM "offers" o
-        LEFT JOIN "clicks" c ON c.offer_id = o.id
+        LEFT JOIN "clicks" c ON c."offerId" = o.id
         LEFT JOIN "conversions" conv ON conv."clickId" = c."clickId"
         WHERE c.timestamp >= NOW() - INTERVAL '30 days'
         GROUP BY o.id, o.name
@@ -324,7 +327,10 @@ export class AIController {
 
   private static forecastData(historical: any[]): any[] {
     if (historical.length < 2) {
-      return historical;
+      return historical.map(h => ({
+        t: h.date ? new Date(h.date).toISOString() : new Date().toISOString(),
+        value: Number(h.value) || 0,
+      }));
     }
 
     const forecast = [];
@@ -344,7 +350,7 @@ export class AIController {
       const value = average * (1 + variation);
       
       forecast.push({
-        timestamp: futureDate.toISOString(),
+        t: futureDate.toISOString(),
         value: Math.round(value),
       });
     }
@@ -429,10 +435,13 @@ export class AIController {
         ORDER BY day_of_week ASC, hour_of_day ASC
       `;
 
+      // Map day numbers to day names
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      
       return (heatmap as any[]).map(item => ({
-        x: String(item.day_of_week),
+        x: dayNames[Number(item.day_of_week)] || String(item.day_of_week),
         y: String(item.hour_of_day),
-        value: Number(item.value),
+        value: Number(item.value) || 0,
       }));
     } catch (error) {
       console.error('generateHeatmap error:', error);

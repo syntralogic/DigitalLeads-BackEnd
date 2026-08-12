@@ -13,10 +13,11 @@ export class GeoController {
         return;
       }
 
+      // Fixed: Use double quotes for case-sensitive column names
       const countries = await prisma.$queryRaw`
         SELECT 
-          country as id,
-          country as label,
+          c.country as id,
+          c.country as label,
           COUNT(DISTINCT c.id) as clicks,
           COUNT(DISTINCT conv.id) as conversions,
           COALESCE(SUM(conv.revenue), 0) as revenue,
@@ -25,10 +26,10 @@ export class GeoController {
             ELSE (COUNT(DISTINCT conv.id)::float / COUNT(DISTINCT c.id)) * 100 
           END as conversion_rate
         FROM "clicks" c
-        LEFT JOIN "conversions" conv ON conv.click_id = c.click_id
-        WHERE country IS NOT NULL
+        LEFT JOIN "conversions" conv ON conv."clickId" = c."clickId"
+        WHERE c.country IS NOT NULL
           AND c.timestamp >= NOW() - INTERVAL '30 days'
-        GROUP BY country
+        GROUP BY c.country
         ORDER BY clicks DESC
       `;
 
@@ -36,6 +37,10 @@ export class GeoController {
       const total = (countries as any[]).reduce((sum, row) => sum + Number(row.clicks), 0);
       const result = (countries as any[]).map(row => ({
         ...row,
+        clicks: Number(row.clicks) || 0,
+        conversions: Number(row.conversions) || 0,
+        revenue: Number(row.revenue) || 0,
+        conversion_rate: Number(row.conversion_rate) || 0,
         percentage: total > 0 ? (Number(row.clicks) / total) * 100 : 0,
       }));
 
@@ -43,6 +48,7 @@ export class GeoController {
       res.json(result);
       return;
     } catch (error) {
+      console.error('Geo Countries error:', error);
       next(error);
     }
   }
@@ -60,7 +66,7 @@ export class GeoController {
           COUNT(DISTINCT conv.id) as conversions,
           COALESCE(SUM(conv.revenue), 0) as revenue
         FROM "clicks" c
-        LEFT JOIN "conversions" conv ON conv.click_id = c.click_id
+        LEFT JOIN "conversions" conv ON conv."clickId" = c."clickId"
         WHERE c.city IS NOT NULL
       `;
 
@@ -76,9 +82,19 @@ export class GeoController {
         LIMIT 100`;
 
       const states = await prisma.$queryRawUnsafe(sql, ...params);
-      res.json(states);
+      
+      // Convert BigInt to Number
+      const result = (states as any[]).map(row => ({
+        ...row,
+        clicks: Number(row.clicks) || 0,
+        conversions: Number(row.conversions) || 0,
+        revenue: Number(row.revenue) || 0,
+      }));
+
+      res.json(result);
       return;
     } catch (error) {
+      console.error('Geo States error:', error);
       next(error);
     }
   }
@@ -97,7 +113,7 @@ export class GeoController {
           COUNT(DISTINCT conv.id) as conversions,
           COALESCE(SUM(conv.revenue), 0) as revenue
         FROM "clicks" c
-        LEFT JOIN "conversions" conv ON conv.click_id = c.click_id
+        LEFT JOIN "conversions" conv ON conv."clickId" = c."clickId"
         WHERE c.city IS NOT NULL
       `;
 
@@ -121,9 +137,18 @@ export class GeoController {
         LIMIT 100`;
 
       const cities = await prisma.$queryRawUnsafe(sql, ...params);
-      res.json(cities);
+      
+      const result = (cities as any[]).map(row => ({
+        ...row,
+        clicks: Number(row.clicks) || 0,
+        conversions: Number(row.conversions) || 0,
+        revenue: Number(row.revenue) || 0,
+      }));
+
+      res.json(result);
       return;
     } catch (error) {
+      console.error('Geo Cities error:', error);
       next(error);
     }
   }
@@ -141,7 +166,7 @@ export class GeoController {
           COUNT(DISTINCT conv.id) as conversions,
           COALESCE(SUM(conv.revenue), 0) as revenue
         FROM "clicks" c
-        LEFT JOIN "conversions" conv ON conv.click_id = c.click_id
+        LEFT JOIN "conversions" conv ON conv."clickId" = c."clickId"
         WHERE c.isp IS NOT NULL
       `;
 
@@ -157,48 +182,45 @@ export class GeoController {
         LIMIT 50`;
 
       const ispData = await prisma.$queryRawUnsafe(sql, ...params);
-      res.json(ispData);
+      
+      const result = (ispData as any[]).map(row => ({
+        ...row,
+        clicks: Number(row.clicks) || 0,
+        conversions: Number(row.conversions) || 0,
+        revenue: Number(row.revenue) || 0,
+      }));
+
+      res.json(result);
       return;
     } catch (error) {
+      console.error('Geo ISP error:', error);
       next(error);
     }
   }
 
   static async getLanguages(_req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      // Note: Languages are not stored directly in our schema
-      // This would need to be derived from country or a separate lookup
-      // For now, return a sample response
+      // Languages are not stored directly in the schema
+      // Return empty array with a message
       res.json({
-        message: 'Language tracking requires additional configuration',
         data: [],
+        message: 'Language tracking requires additional configuration',
       });
       return;
     } catch (error) {
+      console.error('Geo Languages error:', error);
       next(error);
     }
   }
 
   static async getTimezones(_req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const timezones = await prisma.$queryRaw`
-        SELECT 
-          c.timezone as id,
-          c.timezone as label,
-          COUNT(DISTINCT c.id) as clicks,
-          COUNT(DISTINCT conv.id) as conversions
-        FROM "clicks" c
-        LEFT JOIN "conversions" conv ON conv.click_id = c.click_id
-        WHERE c.timezone IS NOT NULL
-          AND c.timestamp >= NOW() - INTERVAL '30 days'
-        GROUP BY c.timezone
-        ORDER BY clicks DESC
-        LIMIT 50
-      `;
-
-      res.json(timezones);
+      // Timezone is not stored in the current schema
+      // Return empty array
+      res.json([]);
       return;
     } catch (error) {
+      console.error('Geo Timezones error:', error);
       next(error);
     }
   }
@@ -208,24 +230,28 @@ export class GeoController {
       const mapData = await prisma.$queryRaw`
         SELECT 
           c.country,
-          c.latitude,
-          c.longitude,
           COUNT(DISTINCT c.id) as clicks,
           COUNT(DISTINCT conv.id) as conversions,
           COALESCE(SUM(conv.revenue), 0) as revenue
         FROM "clicks" c
-        LEFT JOIN "conversions" conv ON conv.click_id = c.click_id
+        LEFT JOIN "conversions" conv ON conv."clickId" = c."clickId"
         WHERE c.country IS NOT NULL
-          AND c.latitude IS NOT NULL
-          AND c.longitude IS NOT NULL
           AND c.timestamp >= NOW() - INTERVAL '30 days'
-        GROUP BY c.country, c.latitude, c.longitude
+        GROUP BY c.country
         ORDER BY clicks DESC
       `;
 
-      res.json(mapData);
+      const result = (mapData as any[]).map(row => ({
+        ...row,
+        clicks: Number(row.clicks) || 0,
+        conversions: Number(row.conversions) || 0,
+        revenue: Number(row.revenue) || 0,
+      }));
+
+      res.json(result);
       return;
     } catch (error) {
+      console.error('Geo Map error:', error);
       next(error);
     }
   }

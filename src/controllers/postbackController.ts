@@ -22,17 +22,24 @@ export class PostbackController {
         url: '',
         method: 'POST',
         retries: 3,
+        enabled: true,
       };
 
       // Get configuration based on scope
       if (scope === 'global') {
-        const globalConfig = await prisma.$queryRaw`
-          SELECT * FROM "postback_configs" 
-          WHERE scope = 'GLOBAL' 
-          LIMIT 1
-        `;
-        if ((globalConfig as any[]).length > 0) {
-          config = (globalConfig as any[])[0];
+        // Try to get from Redis first
+        const globalUrl = await cache.get('postback:global:url');
+        const globalMethod = await cache.get('postback:global:method');
+        const globalRetries = await cache.get('postback:global:retries');
+        const globalEnabled = await cache.get('postback:global:enabled');
+
+        if (globalUrl) {
+          config.url = globalUrl;
+          config.method = globalMethod || 'POST';
+          // Fix: Ensure globalRetries is a string before parseInt
+          const retriesValue = globalRetries ? String(globalRetries) : '3';
+          config.retries = parseInt(retriesValue, 10) || 3;
+          config.enabled = globalEnabled !== 'false';
         }
       } else if (scope === 'network' && scopeId) {
         const network = await prisma.network.findUnique({
@@ -56,6 +63,7 @@ export class PostbackController {
       res.json(config);
       return;
     } catch (error) {
+      console.error('Get config error:', error);
       next(error);
     }
   }
@@ -63,29 +71,24 @@ export class PostbackController {
   static async saveConfig(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { scope } = req.params;
-      const { url, method, retries } = req.body;
+      const { url, method, retries, enabled } = req.body;
 
-      // Save configuration
-      await prisma.$executeRaw`
-        INSERT INTO "postback_configs" (scope, url, method, retries, updated_at)
-        VALUES (${scope.toUpperCase()}, ${url}, ${method}, ${retries}, NOW())
-        ON CONFLICT (scope) 
-        DO UPDATE SET 
-          url = ${url},
-          method = ${method},
-          retries = ${retries},
-          updated_at = NOW()
-      `;
+      // Save to Redis cache
+      await cache.set(`postback:global:url`, url);
+      await cache.set(`postback:global:method`, method || 'POST');
+      await cache.set(`postback:global:retries`, String(retries || 3));
+      await cache.set(`postback:global:enabled`, String(enabled !== false));
 
       await cache.delPattern(`postback:config:${scope}:*`);
 
+      // Log the configuration change
       await prisma.auditLog.create({
         data: {
           userId: req.user!.id,
           action: 'UPDATE',
           resource: 'PostbackConfig',
           resourceId: scope,
-          changes: { url, method, retries },
+          changes: { url, method, retries, enabled },
           ip: req.ip,
           userAgent: req.headers['user-agent'],
         },
@@ -97,6 +100,7 @@ export class PostbackController {
       });
       return;
     } catch (error) {
+      console.error('Save config error:', error);
       next(error);
     }
   }
@@ -158,6 +162,7 @@ export class PostbackController {
       res.json(result);
       return;
     } catch (error) {
+      console.error('Get logs error:', error);
       next(error);
     }
   }
@@ -172,6 +177,10 @@ export class PostbackController {
 
       if (!log) {
         throw new AppError('Postback log not found', 404);
+      }
+
+      if (log.success) {
+        throw new AppError('Postback already succeeded', 400);
       }
 
       // Send postback again
@@ -208,6 +217,7 @@ export class PostbackController {
       });
       return;
     } catch (error) {
+      console.error('Retry error:', error);
       next(error);
     }
   }
@@ -244,6 +254,7 @@ export class PostbackController {
       });
       return;
     } catch (error) {
+      console.error('Test error:', error);
       next(error);
     }
   }

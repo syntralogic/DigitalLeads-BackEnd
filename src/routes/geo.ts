@@ -7,6 +7,7 @@ const router = Router();
 
 router.use(authenticate);
 
+// Make sure all routes are registered
 router.get('/countries', cacheMiddleware({ ttl: 300 }), GeoController.getCountries);
 router.get('/states', cacheMiddleware({ ttl: 300 }), GeoController.getStates);
 router.get('/cities', cacheMiddleware({ ttl: 300 }), GeoController.getCities);
