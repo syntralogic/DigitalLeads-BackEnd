@@ -13,6 +13,9 @@
     "db:migrate": "prisma migrate deploy",
     "db:studio": "prisma studio"
   },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
   "dependencies": {
     "@prisma/client": "^5.22.0",
     "axios": "^1.19.0",

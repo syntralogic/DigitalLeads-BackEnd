@@ -8,129 +8,109 @@ datasource db {
 }
 
 model User {
-  id                String                @id @default(uuid())
-  email             String                @unique
-  password          String
-  name              String?
-  role              UserRole              @default(ADMIN)
-  avatar            String?
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
-  lastLogin         DateTime?
-  twoFactorEnabled  Boolean               @default(false)
-  ipAllowlist       String?
-  sessionTimeout    Int                   @default(60)
-  auditLogs         AuditLog[]
-  apiKeys           ApiKey[]
-  notifications     Notification[]
+  id                   String               @id @default(uuid())
+  email                String               @unique
+  password             String
+  name                 String?
+  role                 UserRole             @default(ADMIN)
+  avatar               String?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  lastLogin            DateTime?
+  twoFactorEnabled     Boolean              @default(false)
+  ipAllowlist          String?
+  sessionTimeout       Int                  @default(60)
+  apiKeys              ApiKey[]
+  auditLogs            AuditLog[]
   notificationSettings NotificationSetting?
+  notifications        Notification[]
 
   @@map("users")
 }
 
-enum UserRole {
-  ADMIN
-  MANAGER
-  VIEWER
-  API_ONLY
-}
-
 model Network {
-  id                  String          @id @default(uuid())
-  name                String
-  apiUrl              String?
-  apiKey              String?
-  postbackUrl         String?
-  clickIdMapping      String?
-  payoutMapping       String?
-  statusMapping       String?
-  status              NetworkStatus   @default(ACTIVE)
-  apiHealthy          Boolean         @default(false)
-  postbackHealthy     Boolean         @default(false)
-  lastApiCheck        DateTime?
-  lastPostbackCheck   DateTime?
-  createdAt           DateTime        @default(now())
-  updatedAt           DateTime        @updatedAt
-  offers              Offer[]
-  conversions         Conversion[]
-  clicks              Click[]
+  id                String        @id @default(uuid())
+  name              String
+  apiUrl            String?
+  apiKey            String?
+  postbackUrl       String?
+  clickIdMapping    String?
+  payoutMapping     String?
+  statusMapping     String?
+  status            NetworkStatus @default(ACTIVE)
+  apiHealthy        Boolean       @default(false)
+  postbackHealthy   Boolean       @default(false)
+  lastApiCheck      DateTime?
+  lastPostbackCheck DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  clicks            Click[]
+  conversions       Conversion[]
+  offers            Offer[]
 
   @@map("networks")
 }
 
-enum NetworkStatus {
-  ACTIVE
-  INACTIVE
-  SUSPENDED
-}
-
 model Offer {
-  id                String        @id @default(uuid())
-  name              String
-  category          String?
-  country           String?
-  deviceTargeting   String?
-  browserTargeting  String?
-  payout            Float?
-  dailyCap          Int?
-  hourlyCap         Int?
-  startDate         DateTime?
-  endDate           DateTime?
-  status            OfferStatus   @default(ACTIVE)
-  networkId         String
-  network           Network       @relation(fields: [networkId], references: [id], onDelete: Cascade)
-  clicks            Click[]
-  conversions       Conversion[]
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  previewLink       String?
-  routingRules      RoutingRule[]
-  backupRules       RoutingRule[] @relation("BackupOffers")
+  id               String        @id @default(uuid())
+  name             String
+  category         String?
+  country          String?
+  deviceTargeting  String?
+  browserTargeting String?
+  payout           Float?
+  dailyCap         Int?
+  hourlyCap        Int?
+  startDate        DateTime?
+  endDate          DateTime?
+  status           OfferStatus   @default(ACTIVE)
+  networkId        String
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  previewLink      String?
+  clicks           Click[]
+  conversions      Conversion[]
+  network          Network       @relation(fields: [networkId], references: [id], onDelete: Cascade)
+  backupRules      RoutingRule[] @relation("BackupOffers")
+  routingRules     RoutingRule[]
 
   @@map("offers")
 }
 
-enum OfferStatus {
-  ACTIVE
-  PAUSED
-  DISABLED
-  EXPIRED
-}
-
 model Click {
-  id              String    @id @default(uuid())
-  clickId         String    @unique
-  ip              String?
-  country         String?
-  city            String?
-  device          String?
-  os              String?
-  browser         String?
-  isp             String?
-  carrier         String?
-  referrer        String?
-  campaign        String?
-  sub1            String?
-  sub2            String?
-  sub3            String?
-  sub4            String?
-  sub5            String?
-  sub6            String?
-  sub7            String?
-  sub8            String?
-  sub9            String?
-  sub10           String?
-  timestamp       DateTime  @default(now())
-  offerId         String?
-  offer           Offer?    @relation(fields: [offerId], references: [id])
-  networkId       String?
-  network         Network?  @relation(fields: [networkId], references: [id])
-  conversion      Conversion?
-  isFraudulent    Boolean   @default(false)
-  fraudReasons    String?
-  userAgent       String?
-  sessionId       String?
-  revenue         Float?
+  id           String      @id @default(uuid())
+  clickId      String      @unique
+  ip           String?
+  country      String?
+  city         String?
+  device       String?
+  os           String?
+  browser      String?
+  isp          String?
+  carrier      String?
+  referrer     String?
+  campaign     String?
+  sub1         String?
+  sub2         String?
+  sub3         String?
+  sub4         String?
+  sub5         String?
+  sub6         String?
+  sub7         String?
+  sub8         String?
+  sub9         String?
+  sub10        String?
+  timestamp    DateTime    @default(now())
+  offerId      String?
+  networkId    String?
+  isFraudulent Boolean     @default(false)
+  fraudReasons String?
+  userAgent    String?
+  sessionId    String?
+  revenue      Float?
+  network      Network?    @relation(fields: [networkId], references: [id])
+  offer        Offer?      @relation(fields: [offerId], references: [id])
+  conversion   Conversion?
 
   @@index([timestamp])
   @@index([offerId])
@@ -141,25 +121,25 @@ model Click {
 }
 
 model Conversion {
-  id              String            @id @default(uuid())
-  conversionId    String            @unique
-  offerId         String
-  offer           Offer             @relation(fields: [offerId], references: [id])
-  networkId       String
-  network         Network           @relation(fields: [networkId], references: [id])
-  clickId         String            @unique
-  click           Click?            @relation(fields: [clickId], references: [clickId])
-  revenue         Float?
-  payout          Float?
-  status          ConversionStatus  @default(PENDING)
-  country         String?
-  device          String?
-  browser         String?
-  timestamp       DateTime          @default(now())
-  isFraudulent    Boolean           @default(false)
-  fraudReasons    String?
-  ip              String?
-  userAgent       String?
+  id           String           @id @default(uuid())
+  conversionId String           @unique
+  offerId      String
+  networkId    String
+  clickId      String           @unique
+  revenue      Float?
+  payout       Float?
+  status       ConversionStatus @default(PENDING)
+  country      String?
+  device       String?
+  browser      String?
+  timestamp    DateTime         @default(now())
+  isFraudulent Boolean          @default(false)
+  fraudReasons String?
+  ip           String?
+  userAgent    String?
+  click        Click            @relation(fields: [clickId], references: [clickId])
+  network      Network          @relation(fields: [networkId], references: [id])
+  offer        Offer            @relation(fields: [offerId], references: [id])
 
   @@index([timestamp])
   @@index([offerId])
@@ -168,30 +148,213 @@ model Conversion {
   @@map("conversions")
 }
 
+model FraudSignal {
+  id        String    @id @default(uuid())
+  type      FraudType
+  label     String
+  count     Int       @default(0)
+  riskLevel RiskLevel @default(LOW)
+  timestamp DateTime  @default(now())
+  ipAddress String?
+  details   String?
+  resolved  Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([type])
+  @@index([timestamp])
+  @@map("fraud_signals")
+}
+
+model RoutingRule {
+  id            String      @id @default(uuid())
+  name          String
+  type          RoutingType
+  conditions    Json
+  weight        Int         @default(100)
+  targetOfferId String?
+  backupOfferId String?
+  priority      Int         @default(0)
+  enabled       Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  backupOffer   Offer?      @relation("BackupOffers", fields: [backupOfferId], references: [id])
+  targetOffer   Offer?      @relation(fields: [targetOfferId], references: [id])
+
+  @@map("routing_rules")
+}
+
+model Domain {
+  id        String       @id @default(uuid())
+  domain    String       @unique
+  type      DomainType
+  sslStatus String?
+  dnsStatus String?
+  health    String?
+  status    DomainStatus @default(ACTIVE)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@map("domains")
+}
+
+model PostbackLog {
+  id         String        @id @default(uuid())
+  scope      PostbackScope
+  scopeId    String?
+  url        String
+  method     String
+  payload    Json?
+  response   String?
+  statusCode Int?
+  success    Boolean       @default(false)
+  retryCount Int           @default(0)
+  timestamp  DateTime      @default(now())
+  error      String?
+
+  @@index([timestamp])
+  @@index([success])
+  @@map("postback_logs")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  read      Boolean          @default(false)
+  metadata  Json?
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([read])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model NotificationSetting {
+  id                 String  @id @default(uuid())
+  userId             String  @unique
+  telegram           Boolean @default(false)
+  email              Boolean @default(true)
+  capAlerts          Boolean @default(true)
+  conversionAlerts   Boolean @default(true)
+  networkErrorAlerts Boolean @default(true)
+  fraudAlerts        Boolean @default(true)
+  user               User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_settings")
+}
+
+model ApiKey {
+  id        String    @id @default(uuid())
+  userId    String
+  label     String
+  keyHash   String
+  lastUsed  DateTime?
+  createdAt DateTime  @default(now())
+  revoked   Boolean   @default(false)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, label])
+  @@map("api_keys")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String
+  action     String
+  resource   String
+  resourceId String?
+  changes    Json?
+  ip         String?
+  userAgent  String?
+  timestamp  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([timestamp])
+  @@index([resource])
+  @@map("audit_logs")
+}
+
+model BrandingSetting {
+  id               String   @id @default(uuid())
+  panelName        String   @default("DigitalLeads")
+  logoUrl          String?
+  supportEmail     String?
+  whiteLabelDomain String?
+  updatedAt        DateTime @updatedAt
+
+  @@map("branding_settings")
+}
+
+model SmtpSetting {
+  id        String   @id @default(uuid())
+  host      String
+  port      Int      @default(587)
+  username  String
+  password  String?
+  fromEmail String
+  secure    Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+
+  @@map("smtp_settings")
+}
+
+model SecuritySetting {
+  id                    String   @id @default(uuid())
+  twoFactorRequired     Boolean  @default(false)
+  ipAllowlist           String?
+  sessionTimeoutMinutes Int      @default(60)
+  updatedAt             DateTime @updatedAt
+
+  @@map("security_settings")
+}
+
+model AnalyticsAggregation {
+  id          String   @id @default(uuid())
+  date        DateTime
+  metric      String
+  value       Float
+  dimension   String?
+  dimensionId String?
+  createdAt   DateTime @default(now())
+
+  @@unique([date, metric, dimension, dimensionId])
+  @@index([date])
+  @@index([metric])
+  @@map("analytics_aggregations")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  VIEWER
+  API_ONLY
+}
+
+enum NetworkStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum OfferStatus {
+  ACTIVE
+  PAUSED
+  DISABLED
+  EXPIRED
+}
+
 enum ConversionStatus {
   PENDING
   APPROVED
   REJECTED
   HOLD
   CHARGEBACK
-}
-
-model FraudSignal {
-  id          String      @id @default(uuid())
-  type        FraudType
-  label       String
-  count       Int         @default(0)
-  riskLevel   RiskLevel   @default(LOW)
-  timestamp   DateTime    @default(now())
-  ipAddress   String?
-  details     String?
-  resolved    Boolean     @default(false)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-
-  @@index([type])
-  @@index([timestamp])
-  @@map("fraud_signals")
 }
 
 enum FraudType {
@@ -212,44 +375,12 @@ enum RiskLevel {
   CRITICAL
 }
 
-model RoutingRule {
-  id              String        @id @default(uuid())
-  name            String
-  type            RoutingType
-  conditions      Json
-  weight          Int           @default(100)
-  targetOfferId   String?
-  targetOffer     Offer?        @relation(fields: [targetOfferId], references: [id])
-  backupOfferId   String?
-  backupOffer     Offer?        @relation("BackupOffers", fields: [backupOfferId], references: [id])
-  priority        Int           @default(0)
-  enabled         Boolean       @default(true)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-
-  @@map("routing_rules")
-}
-
 enum RoutingType {
   COUNTRY
   DEVICE
   BROWSER
   OS
   WEIGHT
-}
-
-model Domain {
-  id          String        @id @default(uuid())
-  domain      String        @unique
-  type        DomainType
-  sslStatus   String?
-  dnsStatus   String?
-  health      String?
-  status      DomainStatus  @default(ACTIVE)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-
-  @@map("domains")
 }
 
 enum DomainType {
@@ -263,46 +394,10 @@ enum DomainStatus {
   PENDING
 }
 
-model PostbackLog {
-  id          String          @id @default(uuid())
-  scope       PostbackScope
-  scopeId     String?
-  url         String
-  method      String
-  payload     Json?
-  response    String?
-  statusCode  Int?
-  success     Boolean         @default(false)
-  retryCount  Int             @default(0)
-  timestamp   DateTime        @default(now())
-  error       String?
-
-  @@index([timestamp])
-  @@index([success])
-  @@map("postback_logs")
-}
-
 enum PostbackScope {
   GLOBAL
   NETWORK
   OFFER
-}
-
-model Notification {
-  id          String            @id @default(uuid())
-  userId      String
-  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type        NotificationType
-  title       String
-  message     String
-  read        Boolean           @default(false)
-  metadata    Json?
-  createdAt   DateTime          @default(now())
-
-  @@index([userId])
-  @@index([read])
-  @@index([createdAt])
-  @@map("notifications")
 }
 
 enum NotificationType {
@@ -313,99 +408,4 @@ enum NotificationType {
   NETWORK_ERROR
   FRAUD_ALERT
   SYSTEM
-}
-
-model NotificationSetting {
-  id                    String    @id @default(uuid())
-  userId                String    @unique
-  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  telegram              Boolean   @default(false)
-  email                 Boolean   @default(true)
-  capAlerts             Boolean   @default(true)
-  conversionAlerts      Boolean   @default(true)
-  networkErrorAlerts    Boolean   @default(true)
-  fraudAlerts           Boolean   @default(true)
-
-  @@map("notification_settings")
-}
-
-model ApiKey {
-  id          String    @id @default(uuid())
-  userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  label       String
-  keyHash     String
-  lastUsed    DateTime?
-  createdAt   DateTime  @default(now())
-  revoked     Boolean   @default(false)
-
-  @@unique([userId, label])
-  @@map("api_keys")
-}
-
-model AuditLog {
-  id          String    @id @default(uuid())
-  userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  action      String
-  resource    String
-  resourceId  String?
-  changes     Json?
-  ip          String?
-  userAgent   String?
-  timestamp   DateTime  @default(now())
-
-  @@index([userId])
-  @@index([timestamp])
-  @@index([resource])
-  @@map("audit_logs")
-}
-
-model BrandingSetting {
-  id                String    @id @default(uuid())
-  panelName         String    @default("DigitalLeads")
-  logoUrl           String?
-  supportEmail      String?
-  whiteLabelDomain  String?
-  updatedAt         DateTime  @updatedAt
-
-  @@map("branding_settings")
-}
-
-model SmtpSetting {
-  id          String    @id @default(uuid())
-  host        String
-  port        Int       @default(587)
-  username    String
-  password    String?
-  fromEmail   String
-  secure      Boolean   @default(true)
-  updatedAt   DateTime  @updatedAt
-
-  @@map("smtp_settings")
-}
-
-model SecuritySetting {
-  id                    String    @id @default(uuid())
-  twoFactorRequired     Boolean   @default(false)
-  ipAllowlist           String?
-  sessionTimeoutMinutes Int       @default(60)
-  updatedAt             DateTime  @updatedAt
-
-  @@map("security_settings")
-}
-
-model AnalyticsAggregation {
-  id          String    @id @default(uuid())
-  date        DateTime
-  metric      String
-  value       Float
-  dimension   String?
-  dimensionId String?
-  createdAt   DateTime  @default(now())
-
-  @@unique([date, metric, dimension, dimensionId])
-  @@index([date])
-  @@index([metric])
-  @@map("analytics_aggregations")
 }
