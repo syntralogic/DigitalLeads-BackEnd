@@ -1,80 +1,44 @@
-import Redis from 'ioredis';
+import { Redis as UpstashRedis } from '@upstash/redis';
 import { logger } from './logger';
 
-// Use Upstash Redis environment variables
-const UPSTASH_REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.REDIS_URL;
-const UPSTASH_REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.REDIS_PASSWORD;
+// Get Upstash credentials from environment
+const UPSTASH_REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
+const UPSTASH_REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 
-// Determine if we're using Upstash (REST API) or standard Redis
-const isUpstash = UPSTASH_REDIS_URL?.includes('upstash.io') || false;
-
-let redis: Redis;
-
-if (isUpstash && UPSTASH_REDIS_URL) {
-  // Upstash Redis uses REST API with token authentication
-  redis = new Redis({
-    host: new URL(UPSTASH_REDIS_URL).hostname,
-    port: 443,
-    password: UPSTASH_REDIS_TOKEN,
-    tls: {},
-    retryStrategy: (times) => {
-      const delay = Math.min(times * 50, 2000);
-      logger.warn(`Redis reconnect attempt ${times}, delay: ${delay}ms`);
-      return delay;
-    },
-    maxRetriesPerRequest: 3,
-    enableReadyCheck: true,
-    lazyConnect: false,
-  });
-} else {
-  // Standard Redis connection (local or other)
-  const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
-  const REDIS_PASSWORD = process.env.REDIS_PASSWORD || '';
-  
-  redis = new Redis(REDIS_URL, {
-    password: REDIS_PASSWORD || undefined,
-    retryStrategy: (times) => {
-      const delay = Math.min(times * 50, 2000);
-      logger.warn(`Redis reconnect attempt ${times}, delay: ${delay}ms`);
-      return delay;
-    },
-    maxRetriesPerRequest: 3,
-    enableReadyCheck: true,
-    lazyConnect: false,
-  });
+// Validate credentials
+if (!UPSTASH_REDIS_URL || !UPSTASH_REDIS_TOKEN) {
+  logger.error('❌ Upstash Redis credentials are missing!');
+  logger.error('Please set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN');
+  process.exit(1);
 }
 
-// Event listeners
-redis.on('connect', () => {
-  logger.info('🔗 Redis connected successfully');
+// Create Upstash Redis client
+export const redis = new UpstashRedis({
+  url: UPSTASH_REDIS_URL,
+  token: UPSTASH_REDIS_TOKEN,
 });
 
-redis.on('ready', () => {
-  logger.info('✅ Redis ready');
-});
+// Test the connection
+async function testConnection() {
+  try {
+    await redis.ping();
+    logger.info('✅ Redis connected successfully via Upstash');
+  } catch (error) {
+    logger.error('❌ Redis connection error:', error);
+    process.exit(1);
+  }
+}
 
-redis.on('error', (error) => {
-  logger.error('❌ Redis connection error:', error);
-});
+// Run connection test
+testConnection();
 
-redis.on('close', () => {
-  logger.warn('⚠️ Redis connection closed');
-});
-
-redis.on('reconnecting', () => {
-  logger.warn('🔄 Redis reconnecting...');
-});
-
+// Export a cache object with the same interface as before
 export const cache = {
   async get<T>(key: string): Promise<T | null> {
     try {
       const data = await redis.get(key);
       if (!data) return null;
-      try {
-        return JSON.parse(data) as T;
-      } catch {
-        return data as T;
-      }
+      return typeof data === 'string' ? JSON.parse(data) as T : data as T;
     } catch (error) {
       logger.error(`Redis get error for key ${key}:`, error);
       return null;
@@ -83,11 +47,10 @@ export const cache = {
 
   async set(key: string, value: any, ttlSeconds?: number): Promise<boolean> {
     try {
-      const serialized = typeof value === 'string' ? value : JSON.stringify(value);
       if (ttlSeconds) {
-        await redis.setex(key, ttlSeconds, serialized);
+        await redis.set(key, JSON.stringify(value), { ex: ttlSeconds });
       } else {
-        await redis.set(key, serialized);
+        await redis.set(key, JSON.stringify(value));
       }
       return true;
     } catch (error) {
@@ -190,4 +153,4 @@ export const cache = {
   },
 };
 
-export { redis };
+export default redis;
