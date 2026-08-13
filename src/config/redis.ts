@@ -1,21 +1,50 @@
 import Redis from 'ioredis';
 import { logger } from './logger';
 
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
-const REDIS_PASSWORD = process.env.REDIS_PASSWORD || '';
+// Use Upstash Redis environment variables
+const UPSTASH_REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.REDIS_URL;
+const UPSTASH_REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.REDIS_PASSWORD;
 
-export const redis = new Redis(REDIS_URL, {
-  password: REDIS_PASSWORD || undefined,
-  retryStrategy: (times) => {
-    const delay = Math.min(times * 50, 2000);
-    logger.warn(`Redis reconnect attempt ${times}, delay: ${delay}ms`);
-    return delay;
-  },
-  maxRetriesPerRequest: 3,
-  enableReadyCheck: true,
-  lazyConnect: false,
-});
+// Determine if we're using Upstash (REST API) or standard Redis
+const isUpstash = UPSTASH_REDIS_URL?.includes('upstash.io') || false;
 
+let redis: Redis;
+
+if (isUpstash && UPSTASH_REDIS_URL) {
+  // Upstash Redis uses REST API with token authentication
+  redis = new Redis({
+    host: new URL(UPSTASH_REDIS_URL).hostname,
+    port: 443,
+    password: UPSTASH_REDIS_TOKEN,
+    tls: {},
+    retryStrategy: (times) => {
+      const delay = Math.min(times * 50, 2000);
+      logger.warn(`Redis reconnect attempt ${times}, delay: ${delay}ms`);
+      return delay;
+    },
+    maxRetriesPerRequest: 3,
+    enableReadyCheck: true,
+    lazyConnect: false,
+  });
+} else {
+  // Standard Redis connection (local or other)
+  const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+  const REDIS_PASSWORD = process.env.REDIS_PASSWORD || '';
+  
+  redis = new Redis(REDIS_URL, {
+    password: REDIS_PASSWORD || undefined,
+    retryStrategy: (times) => {
+      const delay = Math.min(times * 50, 2000);
+      logger.warn(`Redis reconnect attempt ${times}, delay: ${delay}ms`);
+      return delay;
+    },
+    maxRetriesPerRequest: 3,
+    enableReadyCheck: true,
+    lazyConnect: false,
+  });
+}
+
+// Event listeners
 redis.on('connect', () => {
   logger.info('🔗 Redis connected successfully');
 });
@@ -134,7 +163,6 @@ export const cache = {
     }
   },
 
-  // Cache with automatic serialization
   async remember<T>(
     key: string,
     fetchFn: () => Promise<T>,
@@ -150,7 +178,6 @@ export const cache = {
     return data;
   },
 
-  // Rate limiting
   async rateLimit(key: string, limit: number, windowSeconds: number): Promise<{ allowed: boolean; remaining: number }> {
     const current = await this.increment(key);
     if (current === 1) {
@@ -162,3 +189,5 @@ export const cache = {
     };
   },
 };
+
+export { redis };
