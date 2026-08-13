@@ -15,36 +15,56 @@ export class AuditController {
         sort = 'timestamp:desc',
       } = req.query;
 
-      const skip = (Number(page) - 1) * Number(pageSize);
-      const take = Number(pageSize);
+      // Ensure page and pageSize are valid numbers
+      const pageNum = Math.max(1, Number(page) || 1);
+      const pageSizeNum = Math.min(100, Math.max(1, Number(pageSize) || 25));
+      const skip = (pageNum - 1) * pageSizeNum;
+      const take = pageSizeNum;
 
       const where: any = {};
-      if (search) {
+      
+      // Only add filters if they exist and are not empty strings
+      if (search && typeof search === 'string' && search.trim()) {
         where.OR = [
-          { action: { contains: search as string, mode: 'insensitive' } },
-          { resource: { contains: search as string, mode: 'insensitive' } },
-          { resourceId: { contains: search as string, mode: 'insensitive' } },
+          { action: { contains: search.trim(), mode: 'insensitive' } },
+          { resource: { contains: search.trim(), mode: 'insensitive' } },
+          { resourceId: { contains: search.trim(), mode: 'insensitive' } },
         ];
       }
-      if (action) {
-        where.action = action as string;
+      
+      if (action && typeof action === 'string' && action.trim()) {
+        where.action = action.trim();
       }
-      if (resource) {
-        where.resource = resource as string;
+      
+      if (resource && typeof resource === 'string' && resource.trim()) {
+        where.resource = resource.trim();
       }
+      
       if (from || to) {
         where.timestamp = {};
-        if (from) {
-          where.timestamp.gte = new Date(from as string);
+        if (from && typeof from === 'string') {
+          const fromDate = new Date(from);
+          if (!isNaN(fromDate.getTime())) {
+            where.timestamp.gte = fromDate;
+          }
         }
-        if (to) {
-          where.timestamp.lte = new Date(to as string);
+        if (to && typeof to === 'string') {
+          const toDate = new Date(to);
+          if (!isNaN(toDate.getTime())) {
+            where.timestamp.lte = toDate;
+          }
         }
       }
 
-      const [sortField, sortOrder] = (sort as string).split(':');
-      const orderBy: any = {};
-      orderBy[sortField] = sortOrder === 'desc' ? 'desc' : 'asc';
+      // Parse sort
+      let orderBy: any = { timestamp: 'desc' };
+      if (sort && typeof sort === 'string') {
+        const [sortField, sortOrder] = sort.split(':');
+        if (sortField && ['timestamp', 'action', 'resource'].includes(sortField)) {
+          orderBy = {};
+          orderBy[sortField] = sortOrder === 'asc' ? 'asc' : 'desc';
+        }
+      }
 
       const [logs, total] = await Promise.all([
         prisma.auditLog.findMany({
@@ -68,16 +88,17 @@ export class AuditController {
       const result = {
         data: logs,
         pagination: {
-          page: Number(page),
-          pageSize: Number(pageSize),
+          page: pageNum,
+          pageSize: pageSizeNum,
           total,
-          totalPages: Math.ceil(total / Number(pageSize)),
+          totalPages: Math.ceil(total / pageSizeNum),
         },
       };
 
       res.json(result);
       return;
     } catch (error) {
+      console.error('Audit logs error:', error);
       next(error);
     }
   }
@@ -94,25 +115,35 @@ export class AuditController {
       } = req.query;
 
       const where: any = {};
-      if (search) {
+      
+      if (search && typeof search === 'string' && search.trim()) {
         where.OR = [
-          { action: { contains: search as string, mode: 'insensitive' } },
-          { resource: { contains: search as string, mode: 'insensitive' } },
+          { action: { contains: search.trim(), mode: 'insensitive' } },
+          { resource: { contains: search.trim(), mode: 'insensitive' } },
         ];
       }
-      if (action) {
-        where.action = action as string;
+      
+      if (action && typeof action === 'string' && action.trim()) {
+        where.action = action.trim();
       }
-      if (resource) {
-        where.resource = resource as string;
+      
+      if (resource && typeof resource === 'string' && resource.trim()) {
+        where.resource = resource.trim();
       }
+      
       if (from || to) {
         where.timestamp = {};
-        if (from) {
-          where.timestamp.gte = new Date(from as string);
+        if (from && typeof from === 'string') {
+          const fromDate = new Date(from);
+          if (!isNaN(fromDate.getTime())) {
+            where.timestamp.gte = fromDate;
+          }
         }
-        if (to) {
-          where.timestamp.lte = new Date(to as string);
+        if (to && typeof to === 'string') {
+          const toDate = new Date(to);
+          if (!isNaN(toDate.getTime())) {
+            where.timestamp.lte = toDate;
+          }
         }
       }
 
@@ -170,6 +201,7 @@ export class AuditController {
       });
       return;
     } catch (error) {
+      console.error('Audit export error:', error);
       next(error);
     }
   }

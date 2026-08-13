@@ -120,24 +120,33 @@ export class SettingsController {
     try {
       const { host, port, username, password, fromEmail, secure } = req.body;
 
+      // Get existing settings to preserve password if not provided
+      const existing = await prisma.smtpSetting.findFirst();
+      
+      // Determine the password to save
+      let passwordToSave = existing?.password || '';
+      if (password && password.trim().length > 0) {
+        passwordToSave = password;
+      }
+
       const smtp = await prisma.smtpSetting.upsert({
         where: { id: 'default' },
         update: {
           host,
           port,
           username,
-          password: password ? password : undefined,
+          password: passwordToSave,
           fromEmail,
-          secure,
+          secure: secure !== undefined ? secure : true,
         },
         create: {
           id: 'default',
           host,
           port,
           username,
-          password: password || '',
+          password: passwordToSave,
           fromEmail,
-          secure,
+          secure: secure !== undefined ? secure : true,
         },
       });
 
@@ -172,18 +181,22 @@ export class SettingsController {
         throw new AppError('SMTP settings not configured. Please save SMTP settings first.', 400);
       }
 
-      // Log what we're trying to connect to
+      // Check if credentials are present
+      if (!smtp.username || !smtp.password) {
+        throw new AppError('SMTP credentials missing. Please check username and password.', 400);
+      }
+
+      // Log what we're trying to connect to (hide password)
       console.log('SMTP Test Config:', {
         host: smtp.host,
         port: smtp.port,
         secure: smtp.secure,
         username: smtp.username,
         fromEmail: smtp.fromEmail,
+        hasPassword: !!smtp.password,
       });
 
       // Create transporter with proper settings
-      // For Gmail: port 587, secure: false (STARTTLS)
-      // For Gmail: port 465, secure: true (SSL)
       const transporter = nodemailer.createTransport({
         host: smtp.host,
         port: smtp.port,
@@ -193,7 +206,6 @@ export class SettingsController {
           pass: smtp.password || '',
         },
         tls: {
-          // Allow self-signed certificates for testing
           rejectUnauthorized: false,
         },
         // For Gmail specifically
@@ -303,6 +315,9 @@ export class SettingsController {
       } else if (error.message?.includes('wrong version number')) {
         errorMessage += 'SSL/TLS version mismatch. Try setting "Secure" to OFF for port 587, or ON for port 465.';
         errorCode = 'SSL_VERSION_MISMATCH';
+      } else if (error.message?.includes('Missing credentials')) {
+        errorMessage += 'Username or password is missing. Please check your SMTP credentials.';
+        errorCode = 'MISSING_CREDENTIALS';
       } else {
         errorMessage += error.message;
       }
@@ -635,7 +650,7 @@ export class SettingsController {
   }
 
   // ============================================================
-  // AUDIT LOGS (Optional - can be added later)
+  // AUDIT LOGS
   // ============================================================
 
   static async getAuditLogs(req: Request, res: Response, next: NextFunction): Promise<void> {
